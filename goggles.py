@@ -1,7 +1,9 @@
 #!/usr/bin/env python
+from __future__ import with_statement
+from httplib2 import Http
+from urllib import urlencode
 
 import random
-import urllib2 as ul
 from protobufparser import pprint
 
 def to_varint(value):
@@ -16,12 +18,13 @@ def to_varint(value):
     return ''.join(ret)
 
 def encode_image(image):
+    trailingBytes = "\x18\x4B\x20\x01\x30\x00\x92\xEC\xF4\x3B\x09\x18\x00\x38\xC6\x97\xDC\xDF\xF7\x25\x22\x00"
     size = len(image)
-    a = to_varint(size + 401)
+    x = to_varint(size)
+    a = to_varint(size + 32)
     b = to_varint(size + 14)
     c = to_varint(size + 10)
-    size = to_varint(size)
-    return "\n%s\n%s\n%s\n%s%s" % (a,b,c,size,image)
+    return "\x0A"+a+"\x0A"+b+"\x0A"+c+"\x0A"+x+image+trailingBytes
 
 def gen_cssid():
     return "".join([random.choice(['0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f']) for i in xrange(16)])
@@ -36,29 +39,17 @@ class Goggles:
 
     def init_cssid(self):
         self.cssid = gen_cssid()
-        req =  ul.Request(self.url % self.cssid, self.activation_magic, self.headers)
-        try:
-            ul.urlopen(req)
-        except ul.HTTPError, e:
-            if e.code==400:
-                print "maybe google doesn't like cssid", self.cssid
-                print "trying again..."
-                self.init_cssid()
-            else:
-                raise e
+        h = Http()
+        h.request("http://www.google.com/goggles/container_proto?cssid="+self.cssid, "POST", self.activation_magic,headers={"Content-Type": "application/x-protobuffer", "Pragma": "no-cache"})
                 
     def send_image(self, image):
-        req = ul.Request(self.url % self.cssid, encode_image(image), self.headers)
-        try:
-            result = ul.urlopen(req)
-        except ul.HTTPError, e:
-            if e.code==400:
-                print "something's wrong, i'll try a new cssid...maybe that fixes it :)"
-                self.init_cssid()
-                self.send_image(image)
-            else:
-                raise e
-        return result.read()
+        h = Http()
+        resp, content = h.request("http://www.google.com/goggles/container_proto?cssid="+self.cssid, "POST", encode_image(image),headers={"Content-Type": "application/x-protobuffer", "Pragma": "no-cache"})
+
+        if resp['status']=='400':
+           print "something's wrong."
+
+        return content
 
 if __name__ == "__main__":
     from optparse import OptionParser
